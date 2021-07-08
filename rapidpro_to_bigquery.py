@@ -11,16 +11,16 @@ from fields import (
     FLOW_RUNS_FIELDS, FLOW_RUN_VALUES_FIELDS, GROUP_FIELDS)
 
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
-RAPIDPRO_TOKEN = os.environ.get("RAPIDPRO_TOKENS", [])
-
+RAPIDPRO_TOKEN_DRC = os.environ.get("RAPIDPRO_TOKEN_DRC", "")
+RAPIDPRO_TOKEN_IC = os.environ.get("RAPIDPRO_TOKEN_IC", "")
 BQ_KEY_PATH = "/bigquery/credentials.json"
 BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
     "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
 }
 clients {
-    "drc": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN[0]),
-    "ic": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN[1]
+    "drc": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_DRC),
+    "ic": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
 }
 fields = {
     "drc": CONTACT_FIELDS_DRC,
