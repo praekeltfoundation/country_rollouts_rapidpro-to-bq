@@ -13,7 +13,7 @@ from fields import (
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
 RAPIDPRO_TOKEN_DRC = os.environ.get("RAPIDPRO_TOKEN_DRC", "")
 RAPIDPRO_TOKEN_IC = os.environ.get("RAPIDPRO_TOKEN_IC", "")
-BQ_KEY_PATH = "/bigquery/credentials.json"
+BQ_KEY_PATH = "/bigquery/bq_credentials.json"
 BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
     "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
