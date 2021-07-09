@@ -34,7 +34,6 @@ credentials = service_account.Credentials.from_service_account_file(
 bigquery_client = bigquery.Client(
     credentials=credentials, project=credentials.project_id,
 )
-rapidpro_clients = [, ]
 
 def log(text):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
