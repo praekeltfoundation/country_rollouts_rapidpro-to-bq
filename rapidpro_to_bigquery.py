@@ -18,7 +18,7 @@ BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
     "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
 }
-clients {
+clients = {
     "drc": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_DRC),
     "ic": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
 }
