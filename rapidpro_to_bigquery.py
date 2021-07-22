@@ -11,8 +11,8 @@ from fields import (
     FLOW_RUNS_FIELDS, FLOW_RUN_VALUES_FIELDS, GROUP_FIELDS)
 
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
-RAPIDPRO_TOKEN_DRC = os.environ.get("RAPIDPRO_TOKEN_DRC", "")
-RAPIDPRO_TOKEN_IC = os.environ.get("RAPIDPRO_TOKEN_IC", "")
+RAPIDPRO_TOKEN_DRC = os.environ["RAPIDPRO_TOKEN_DRC"]
+RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
 BQ_KEY_PATH = "/bigquery/bq_credentials.json"
 BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
@@ -229,6 +229,6 @@ if __name__ == "__main__":
             rows = data["data"]
             log(f"Uploading {len(rows)} {table}")
 
-            upload_to_bigquery(BQ_DATASETS['country'], table, rows, data.get("fields"))
+            upload_to_bigquery(BQ_DATASETS[country], table, rows, data.get("fields"))
 
     log("Done")
