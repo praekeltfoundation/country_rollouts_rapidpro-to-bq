@@ -11,20 +11,20 @@ from fields import (
     FLOW_RUNS_FIELDS, FLOW_RUN_VALUES_FIELDS, GROUP_FIELDS)
 
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
-RAPIDPRO_TOKEN_DRC = os.environ["RAPIDPRO_TOKEN_DRC"]
-RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
+RAPIDPRO_TOKEN = os.environ.get('RAPIDPRO_TOKEN', "")
+# RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
 BQ_KEY_PATH = "/bigquery/bq_credentials.json"
 BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
-    "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
+    # "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
 }
 clients = {
     "drc": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_DRC),
-    "ic": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
+    # "ic": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
 }
 fields = {
     "drc": CONTACT_FIELDS_DRC,
-    "ic": CONTACT_FIELDS_IC
+    # "ic": CONTACT_FIELDS_IC
 }
 
 credentials = service_account.Credentials.from_service_account_file(
@@ -91,7 +91,7 @@ def get_contacts_and_contact_groups(rapidpro_client, CONTACT_FIELDS, last_contac
 
 
 def get_last_record_date(table, field):
-    query = f"select EXTRACT(DATETIME from max({field})) from {BQ_DATASET}.{table};"
+    query = f"select EXTRACT(DATETIME from max({field})) from {BQ_DATASETS['drc']}.{table};"
     for row in bigquery_client.query(query).result():
         if row[0]:
             return str(row[0].strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
@@ -152,25 +152,23 @@ def get_flow_runs(flows, rapidpro_client, last_contact_date=None):
 
 
 def upload_to_bigquery(BQ_DATASET, table, data, fields):
-    # if table in ["flows", "groups"]:
-    schema = []
-    for field, data_type in fields.items():
-        schema.append(bigquery.SchemaField(field, data_type))
-    job_config = bigquery.LoadJobConfig(
-        source_format="NEWLINE_DELIMITED_JSON",
-        write_disposition="WRITE_TRUNCATE",
-        max_bad_records=1,
-        autodetect=False
-    )
-    # else:
-    #
-    #
-    #     job_config = bigquery.LoadJobConfig(
-    #         source_format="NEWLINE_DELIMITED_JSON",
-    #         write_disposition="WRITE_APPEND",
-    #         max_bad_records=1,
-    #         autodetect=True
-    #     )
+    if table in ["flows", "groups"]:
+        schema = []
+        for field, data_type in fields.items():
+            schema.append(bigquery.SchemaField(field, data_type))
+        job_config = bigquery.LoadJobConfig(
+            source_format="NEWLINE_DELIMITED_JSON",
+            write_disposition="WRITE_TRUNCATE",
+            max_bad_records=1,
+            autodetect=False
+        )
+    else:
+        job_config = bigquery.LoadJobConfig(
+            source_format="NEWLINE_DELIMITED_JSON",
+            write_disposition="WRITE_APPEND",
+            max_bad_records=1,
+            autodetect=False
+        )
 
     job = bigquery_client.load_table_from_json(
         data, f"{BQ_DATASET}.{table}", job_config=job_config
@@ -183,19 +181,19 @@ def upload_to_bigquery(BQ_DATASET, table, data, fields):
 
 
 if __name__ == "__main__":
-    # last_contact_date_contacts = get_last_record_date("contacts_raw", "modified_on")
-    # last_contact_date_flows = get_last_record_date("flow_runs", "created_at")
-    for country in ["drc", "ic"]:
+    last_contact_date_contacts = get_last_record_date("contacts_raw", "modified_on")
+    last_contact_date_flows = get_last_record_date("flow_runs", "created_at")
+    for country in ["drc"]:
         log("Start")
         print("Fetching flows")
         flows = get_flows(rapidpro_client=clients[country])
         print("Fetching flow runs and values")
-        flow_runs, flow_run_values = get_flow_runs(flows, rapidpro_client=clients[country])
+        flow_runs, flow_run_values = get_flow_runs(flows, rapidpro_client=clients[country], last_contact_date_flows)
         log("Fetching groups...")
         groups = get_groups(rapidpro_client=clients[country])
         log(f"Groups: {len(groups)}")
         log("Fetching contacts and contact groups...")
-        contacts, group_contacts = get_contacts_and_contact_groups(rapidpro_client=clients[country], CONTACT_FIELDS=fields[country])
+        contacts, group_contacts = get_contacts_and_contact_groups(rapidpro_client=clients[country], CONTACT_FIELDS=fields[country], last_contact_date_flows)
         log(f"Contacts: {len(contacts)}")
         log(f"Group Contacts: {len(group_contacts)}")
 
