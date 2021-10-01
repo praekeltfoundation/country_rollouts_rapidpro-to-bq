@@ -11,7 +11,7 @@ from fields import (
     FLOW_RUNS_FIELDS, FLOW_RUN_VALUES_FIELDS, GROUP_FIELDS)
 
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
-RAPIDPRO_TOKEN = os.environ.get('RAPIDPRO_TOKEN', "")
+RAPIDPRO_TOKEN_DRC = os.environ.get('RAPIDPRO_TOKEN_DRC', "")
 # RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
 BQ_KEY_PATH = "/bigquery/bq_credentials.json"
 BQ_DATASETS = {
