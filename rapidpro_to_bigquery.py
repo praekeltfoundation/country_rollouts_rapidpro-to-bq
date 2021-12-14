@@ -4,28 +4,21 @@ from google.oauth2 import service_account
 from google.api_core.exceptions import BadRequest
 import os
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fields import (
-    CONTACT_FIELDS_DRC, CONTACT_FIELDS_IC, GROUP_CONTACT_FIELDS, FLOWS_FIELDS,
+    GROUP_CONTACT_FIELDS, FLOWS_FIELDS,
     FLOW_RUNS_FIELDS, FLOW_RUN_VALUES_FIELDS, GROUP_FIELDS)
 
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
 RAPIDPRO_TOKEN_DRC = os.environ.get('RAPIDPRO_TOKEN_DRC', "")
-# RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
+RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
 BQ_KEY_PATH = "/bigquery/bq_credentials.json"
 BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
-    # "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
+    "ic": "cluster-infra-govcloud-prd.ivory_coast_rapidpro"
 }
-clients = {
-    "drc": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_DRC),
-    # "ic": TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
-}
-fields = {
-    "drc": CONTACT_FIELDS_DRC,
-    # "ic": CONTACT_FIELDS_IC
-}
+RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
 
 credentials = service_account.Credentials.from_service_account_file(
     BQ_KEY_PATH, scopes=["https://www.googleapis.com/auth/cloud-platform"],
@@ -34,6 +27,9 @@ credentials = service_account.Credentials.from_service_account_file(
 bigquery_client = bigquery.Client(
     credentials=credentials, project=credentials.project_id,
 )
+rapidpro_client_1 = TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_DRC)
+rapidpro_client_2 = TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
+CONTACT_FIELDS_DRC = rapidpro_client_1.get_fields().all()
 
 def log(text):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -61,8 +57,8 @@ def get_groups(rapidpro_client):
     return groups
 
 
-def get_contacts_and_contact_groups(rapidpro_client, CONTACT_FIELDS, last_contact_date=None):
-    rapidpro_contacts = rapidpro_client.get_contacts().all(
+def get_contacts_and_contact_groups(rapidpro_client, last_contact_date=None):
+    rapidpro_contacts = rapidpro_client.get_contacts(after=last_contact_date).all(
         retry_on_rate_exceed=True
     )
 
@@ -72,7 +68,9 @@ def get_contacts_and_contact_groups(rapidpro_client, CONTACT_FIELDS, last_contac
         record = {
             "uuid": contact.uuid,
             "modified_on": contact.modified_on.isoformat(),
+            "created_on": contact.created_on.isoformat(),
             "name": contact.name,
+            "language": contact.language,
             "urn": get_contact_wa_urn(contact),
         }
 
@@ -82,8 +80,7 @@ def get_contacts_and_contact_groups(rapidpro_client, CONTACT_FIELDS, last_contac
             )
 
         for field, value in contact.fields.items():
-            if field in CONTACT_FIELDS.keys():
-                record[field] = value
+            record[field] = value
 
         contacts.append(record)
 
@@ -94,7 +91,8 @@ def get_last_record_date(table, field):
     query = f"select EXTRACT(DATETIME from max({field})) from {BQ_DATASETS['drc']}.{table};"
     for row in bigquery_client.query(query).result():
         if row[0]:
-            return str(row[0].strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+            timestamp = row[0] + timedelta(hours=2)
+            return str(timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
 
 
 def get_flows(rapidpro_client):
@@ -117,7 +115,7 @@ def get_flow_runs(flows, rapidpro_client, last_contact_date=None):
     value_records = []
 
     for flow in flows:
-        for run_batch in rapidpro_client.get_runs(flow=flow["uuid"]).iterfetches(retry_on_rate_exceed=True):
+        for run_batch in rapidpro_client.get_runs(flow=flow["uuid"], after=last_contact_date).iterfetches(retry_on_rate_exceed=True):
             for run in run_batch:
 
                 exited_on = None
@@ -152,8 +150,8 @@ def get_flow_runs(flows, rapidpro_client, last_contact_date=None):
 
 
 def upload_to_bigquery(BQ_DATASET, table, data, fields):
+    schema = []
     if table in ["flows", "groups"]:
-        schema = []
         for field, data_type in fields.items():
             schema.append(bigquery.SchemaField(field, data_type))
         job_config = bigquery.LoadJobConfig(
@@ -163,13 +161,32 @@ def upload_to_bigquery(BQ_DATASET, table, data, fields):
             autodetect=False
         )
     else:
+        if table == "contacts_raw":
+            for field in fields:
+                if field.value_type == "text":
+                    schema.append(bigquery.SchemaField(field.label.replace(" ","_"), "STRING"))
+                elif field.value_type == "uuid":
+                    schema.append(bigquery.SchemaField(field.label.replace(" ","_"), "STRING"))
+                elif field.value_type == "datetime":
+                    schema.append(bigquery.SchemaField(field.label.replace(" ","_"), "TIMESTAMP"))
+                else:
+                    schema.append(bigquery.SchemaField(field.label.replace(" ","_"), field.value_type))
+            schema.append(bigquery.SchemaField("uuid", "STRING"))
+            schema.append(bigquery.SchemaField("name", "STRING"))
+            schema.append(bigquery.SchemaField("urn", "STRING"))
+            schema.append(bigquery.SchemaField("modified_on", "TIMESTAMP"))
+            schema.append(bigquery.SchemaField("language", "STRING"))
+            schema.append(bigquery.SchemaField("created_on", "TIMESTAMP"))
+        else:
+            for field, data_type in fields.items():
+                schema.append(bigquery.SchemaField(field, data_type))
         job_config = bigquery.LoadJobConfig(
             source_format="NEWLINE_DELIMITED_JSON",
             write_disposition="WRITE_APPEND",
             max_bad_records=1,
+            schema=schema,
             autodetect=False
         )
-
     job = bigquery_client.load_table_from_json(
         data, f"{BQ_DATASET}.{table}", job_config=job_config
     )
@@ -183,50 +200,49 @@ def upload_to_bigquery(BQ_DATASET, table, data, fields):
 if __name__ == "__main__":
     last_contact_date_contacts = get_last_record_date("contacts_raw", "modified_on")
     last_contact_date_flows = get_last_record_date("flow_runs", "created_at")
-    for country in ["drc"]:
-        log("Start")
-        print("Fetching flows")
-        flows = get_flows(rapidpro_client=clients[country])
-        print("Fetching flow runs and values")
-        flow_runs, flow_run_values = get_flow_runs(flows, rapidpro_client=clients[country], last_contact_date=last_contact_date_flows)
-        log("Fetching groups...")
-        groups = get_groups(rapidpro_client=clients[country])
-        log(f"Groups: {len(groups)}")
-        log("Fetching contacts and contact groups...")
-        contacts, group_contacts = get_contacts_and_contact_groups(rapidpro_client=clients[country], CONTACT_FIELDS=fields[country], last_contact_date=last_contact_date_flows)
-        log(f"Contacts: {len(contacts)}")
-        log(f"Group Contacts: {len(group_contacts)}")
+    log("Start")
+    log("Fetching flows")
+    flows = get_flows(rapidpro_client=rapidpro_client_1)
+    log("Fetching flow runs and values")
+    flow_runs, flow_run_values = get_flow_runs(flows, rapidpro_client=rapidpro_client_1, last_contact_date=last_contact_date_flows)
+    log("Fetching groups...")
+    groups = get_groups(rapidpro_client=rapidpro_client_1)
+    log(f"Groups: {len(groups)}")
+    log("Fetching contacts and contact groups...")
+    contacts, group_contacts = get_contacts_and_contact_groups(rapidpro_client=rapidpro_client_1, last_contact_date=last_contact_date_contacts)
+    log(f"Contacts: {len(contacts)}")
+    log(f"Group Contacts: {len(group_contacts)}")
 
-        tables = {
-            "groups": {
-                "data": groups,
-                "fields": GROUP_FIELDS},
-            "contacts_raw": {
-                "data": contacts,
-                "fields": fields[country],
-            },
-            "group_contacts": {
-                "data": group_contacts,
-                "fields": GROUP_CONTACT_FIELDS,
-            },
-            "flows": {
-                "data": flows,
-                "fields": FLOWS_FIELDS,
-            },
-            "flow_runs": {
-                "data": flow_runs,
-                "fields": FLOW_RUNS_FIELDS,
-            },
-            "flow_run_values": {
-                "data": flow_run_values,
-                "fields": FLOW_RUN_VALUES_FIELDS,
-            }
+    tables = {
+        "groups": {
+            "data": groups,
+            "fields": GROUP_FIELDS},
+        "contacts_raw": {
+            "data": contacts,
+            "fields": CONTACT_FIELDS_DRC,
+        },
+        "group_contacts": {
+            "data": group_contacts,
+            "fields": GROUP_CONTACT_FIELDS,
+        },
+        "flows": {
+            "data": flows,
+            "fields": FLOWS_FIELDS,
+        },
+        "flow_runs": {
+            "data": flow_runs,
+            "fields": FLOW_RUNS_FIELDS,
+        },
+        "flow_run_values": {
+            "data": flow_run_values,
+            "fields": FLOW_RUN_VALUES_FIELDS,
         }
+    }
 
-        for table, data in tables.items():
-            rows = data["data"]
-            log(f"Uploading {len(rows)} {table}")
+    for table, data in tables.items():
+        rows = data["data"]
+        log(f"Uploading {len(rows)} {table}")
 
-            upload_to_bigquery(BQ_DATASETS[country], table, rows, data.get("fields"))
+        upload_to_bigquery(BQ_DATASETS['drc'], table, rows, data.get("fields"))
 
     log("Done")
