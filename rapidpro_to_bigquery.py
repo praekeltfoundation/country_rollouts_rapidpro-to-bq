@@ -207,7 +207,7 @@ def upload_to_bigquery(BQ_DATASET, table, data, fields):
 
 
 if __name__ == "__main__":
-    for country in ["drc", "ic"]
+    for country in ["drc", "ic"]:
         last_contact_date_contacts = get_last_record_date("contacts_raw", "modified_on", BQ_DATASETS[country])
         last_contact_date_flows = get_last_record_date("flow_runs", "created_at", BQ_DATASETS[country])
         log("Start")
