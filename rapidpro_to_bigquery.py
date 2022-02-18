@@ -12,7 +12,7 @@ from fields import (
 
 RAPIDPRO_URL = "https://country-rollouts-rapidpro-prd.govcloud-k8s.prd-p6t.org/"
 RAPIDPRO_TOKEN_DRC = os.environ.get('RAPIDPRO_TOKEN_DRC', "")
-RAPIDPRO_TOKEN_IC = os.environ["RAPIDPRO_TOKEN_IC"]
+RAPIDPRO_TOKEN_IC = os.environ.get('RAPIDPRO_TOKEN_IC', "")
 BQ_KEY_PATH = "/bigquery/bq_credentials.json"
 BQ_DATASETS = {
     "drc": "cluster-infra-govcloud-prd.drc_rapidpro",
@@ -29,7 +29,16 @@ bigquery_client = bigquery.Client(
 )
 rapidpro_client_1 = TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_DRC)
 rapidpro_client_2 = TembaClient(RAPIDPRO_URL, RAPIDPRO_TOKEN_IC)
+rapidpro_clients = {
+    'drc': rapidpro_client_1,
+    'ic': rapidpro_client_2
+}
 CONTACT_FIELDS_DRC = rapidpro_client_1.get_fields().all()
+CONTACT_FIELDS_IC = rapidpro_client_2.get_fields().all()
+CONTACT_FIELDS = {
+    'drc': CONTACT_FIELDS_DRC,
+    'ic': CONTACT_FIELDS_IC,
+}
 
 def log(text):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -87,8 +96,8 @@ def get_contacts_and_contact_groups(rapidpro_client, last_contact_date=None):
     return contacts, group_contacts
 
 
-def get_last_record_date(table, field):
-    query = f"select EXTRACT(DATETIME from max({field})) from {BQ_DATASETS['drc']}.{table};"
+def get_last_record_date(table, field, dataset):
+    query = f"select EXTRACT(DATETIME from max({field})) from {dataset}.{table};"
     for row in bigquery_client.query(query).result():
         if row[0]:
             timestamp = row[0] + timedelta(hours=2)
@@ -198,51 +207,52 @@ def upload_to_bigquery(BQ_DATASET, table, data, fields):
 
 
 if __name__ == "__main__":
-    last_contact_date_contacts = get_last_record_date("contacts_raw", "modified_on")
-    last_contact_date_flows = get_last_record_date("flow_runs", "created_at")
-    log("Start")
-    log("Fetching flows")
-    flows = get_flows(rapidpro_client=rapidpro_client_1)
-    log("Fetching flow runs and values")
-    flow_runs, flow_run_values = get_flow_runs(flows, rapidpro_client=rapidpro_client_1, last_contact_date=last_contact_date_flows)
-    log("Fetching groups...")
-    groups = get_groups(rapidpro_client=rapidpro_client_1)
-    log(f"Groups: {len(groups)}")
-    log("Fetching contacts and contact groups...")
-    contacts, group_contacts = get_contacts_and_contact_groups(rapidpro_client=rapidpro_client_1, last_contact_date=last_contact_date_contacts)
-    log(f"Contacts: {len(contacts)}")
-    log(f"Group Contacts: {len(group_contacts)}")
+    for country in ["drc", "ic"]:
+        last_contact_date_contacts = get_last_record_date("contacts_raw", "modified_on", BQ_DATASETS[country])
+        last_contact_date_flows = get_last_record_date("flow_runs", "created_at", BQ_DATASETS[country])
+        log("Start")
+        log("Fetching flows")
+        flows = get_flows(rapidpro_client=rapidpro_clients[country])
+        log("Fetching flow runs and values")
+        flow_runs, flow_run_values = get_flow_runs(flows, rapidpro_client=rapidpro_clients[country], last_contact_date=last_contact_date_flows)
+        log("Fetching groups...")
+        groups = get_groups(rapidpro_client=rapidpro_clients[country])
+        log(f"Groups: {len(groups)}")
+        log("Fetching contacts and contact groups...")
+        contacts, group_contacts = get_contacts_and_contact_groups(rapidpro_client=rapidpro_clients[country], last_contact_date=last_contact_date_contacts)
+        log(f"Contacts: {len(contacts)}")
+        log(f"Group Contacts: {len(group_contacts)}")
 
-    tables = {
-        "groups": {
-            "data": groups,
-            "fields": GROUP_FIELDS},
-        "contacts_raw": {
-            "data": contacts,
-            "fields": CONTACT_FIELDS_DRC,
-        },
-        "group_contacts": {
-            "data": group_contacts,
-            "fields": GROUP_CONTACT_FIELDS,
-        },
-        "flows": {
-            "data": flows,
-            "fields": FLOWS_FIELDS,
-        },
-        "flow_runs": {
-            "data": flow_runs,
-            "fields": FLOW_RUNS_FIELDS,
-        },
-        "flow_run_values": {
-            "data": flow_run_values,
-            "fields": FLOW_RUN_VALUES_FIELDS,
+        tables = {
+            "groups": {
+                "data": groups,
+                "fields": GROUP_FIELDS},
+            "contacts_raw": {
+                "data": contacts,
+                "fields": CONTACT_FIELDS[country],
+            },
+            "group_contacts": {
+                "data": group_contacts,
+                "fields": GROUP_CONTACT_FIELDS,
+            },
+            "flows": {
+                "data": flows,
+                "fields": FLOWS_FIELDS,
+            },
+            "flow_runs": {
+                "data": flow_runs,
+                "fields": FLOW_RUNS_FIELDS,
+            },
+            "flow_run_values": {
+                "data": flow_run_values,
+                "fields": FLOW_RUN_VALUES_FIELDS,
+            }
         }
-    }
 
-    for table, data in tables.items():
-        rows = data["data"]
-        log(f"Uploading {len(rows)} {table}")
+        for table, data in tables.items():
+            rows = data["data"]
+            log(f"Uploading {len(rows)} {table}")
 
-        upload_to_bigquery(BQ_DATASETS['drc'], table, rows, data.get("fields"))
+            upload_to_bigquery(BQ_DATASETS[country], table, rows, data.get("fields"))
 
-    log("Done")
+        log("Done")
