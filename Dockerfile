@@ -1,7 +1,6 @@
+FROM ghcr.io/praekeltfoundation/python-base-nw:3.10-bullseye
 
-FROM praekeltfoundation/python-base
-
-RUN apt-get update && apt-get -y install cron
+RUN apt-get-install.sh cron
 
 COPY crontab.txt /etc/cron.d/crontab.txt
 
